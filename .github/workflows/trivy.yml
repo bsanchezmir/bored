@@ -1,0 +1,48 @@
+name: Trivy SBOM Scan and Create Issue
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  trivy_scan:
+    runs-on: ubuntu-latest
+    permissions:
+      # required for all workflows
+      security-events: write
+      # only required for workflows in private repositories
+      actions: read
+      contents: read
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+
+    - name: Checkout securityCenter repository
+      uses: actions/checkout@v3
+      with:
+        repository: bsanchezmir/securityCenter
+        token: ${{ secrets.GHACTIONSECRET }}
+        path: securityCenter
+      
+    - name: Set up Trivy
+      run: |
+        export VERSION=$(curl --silent "https://api.github.com/repos/aquasecurity/trivy/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        echo "Installing Trivy version $VERSION..."
+        curl -Ls "https://github.com/aquasecurity/trivy/releases/download/$VERSION/trivy_${VERSION:1}_Linux-64bit.tar.gz" | tar zx -C /tmp
+        sudo mv /tmp/trivy /usr/local/bin
+        
+    - name: Run Trivy vulnerability scanner
+      run: |
+        trivy sbom --format sarif --vuln-type os,library --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --output trivy-results.sarif securityCenter/sboms/$GITHUB_REPOSITORY.json
+    - name: ls sarif file
+      run: |
+        cat trivy-results.sarif
+    - name: Upload SARIF file
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+          sarif_file: trivy-results.sarif
+          category: my-analysis-tool
+      env:
+        GITHUB_TOKEN: ${{ secrets.GHACTIONSECRET }}
